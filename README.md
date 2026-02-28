@@ -1,130 +1,115 @@
-# Setup Persistent SSH Reverse Tunnel
-A reverse SSH tunnel allows a remote server to access services on a local machine, bypassing firewalls and NAT.
+# scitex-tunnel
 
-## Getting Started
+Persistent SSH reverse tunnel for NAT traversal, powered by autossh.
 
-This repository contains scripts for setting up a persistent SSH reverse tunnel using autossh. It is designed to maintain a stable connection between a host and a bastion (jump) server.
+Part of the [SciTeX](https://github.com/ywatanabe1989/scitex-python) ecosystem.
 
-#### Illustration
-| Host | -> (Reverse SSH Tunneling) -> | Bastion Server|
-| Client | -> | Bastion Server | -> (Port Forwarding) -> | Host |
+## Overview
 
+A reverse SSH tunnel allows remote access to machines behind firewalls/NAT via a bastion (relay) server.
 
-## Prerequisites
-
-- sudo privileges on the bastion server.
-
+```
+Host (behind NAT) --[reverse tunnel]--> Bastion Server <--[SSH]--> Client
+```
 
 ## Installation
 
-#### Host
-
-###### ssh daemon
-``` bash
-sudo apt update
-sudo apt install openssh-server
-sudo service ssh start
-sudo service ssh status
+```bash
+pip install scitex-tunnel
 ```
 
-###### Secret key
+Or as part of SciTeX:
 
 ```bash
-SECRET_KEY_PATH=$HOME/.ssh/id_rsa
-ssh-keygen -t rsa -b 4096 -f $SECRET_KEY_PATH -N ""
-cat "${SECRET_KEY_PATH}.pub" # Copy the contents of the public key to your clipboard
+pip install scitex[tunnel]
 ```
 
-#### Bastion Server
+### Prerequisites
 
-``` bash
-echo <HOST'S_PUBLIC_KEY_CONTENTS> >> $HOME/.ssh/authorized_keys
+- `autossh` installed on the host machine (`sudo apt install autossh`)
+- SSH key pair for authentication
+- A bastion server with SSH access
+
+## Usage
+
+### CLI
+
+```bash
+# Set up a persistent reverse tunnel
+scitex-tunnel setup -p 2222 -b user@bastion.example.com -s ~/.ssh/id_rsa
+
+# Check tunnel status
+scitex-tunnel status
+scitex-tunnel status -p 2222
+
+# Remove a tunnel
+scitex-tunnel remove -p 2222
 ```
 
-#### Host
-``` bash
-# Installs autossh
-sudo yum install -y autossh
+### Python API
 
-# Sets up ssh reverse tunnel as a daemon service
-cd /tmp
-git clone https://github.com/ywatanabe1989/setup-persistent-ssh-reverse-tunnel.git
-cd setup-persistent-ssh-reverse-tunnel
+```python
+import scitex as stx
 
-# Parameters
-PORT=$(shuf -i 1024-65535 -n 1) # Generates a random port number for security
-BASTION_SERVER=<USER-NAME>@<EXTERNAL IP ADDRESS> # Replace with your bastion server details
-SECRET_KEY_PATH=$HOME/.ssh/id_rsa # Path to your private key
+# Check availability
+print(stx.tunnel.AVAILABLE)  # True
 
-# Registers ```/etc/systemd/system/autossh-tunnel-"$PORT".service```
-./setup-autossh-service.sh -p $PORT -b $BASTION_SERVER -s $SECRET_KEY_PATH
-# See /etc/systemd/system/autossh-tunnel-<YOUR_PORT>.service
-# Created symlink /etc/systemd/system/multi-user.target.wants/autossh-tunnel-<YOUR_PORT>.service → /etc/systemd/system/autossh-tunnel-<YOUR_PORT>.service.
-# ● autossh-tunnel-<YOUR_PORT>.service - AutoSSH tunnel service
-#      Loaded: loaded (]8;;file://HOST/etc/systemd/system/autossh-tunnel-<YOUR_PORT>.service/etc/systemd/system/autossh-tunnel-<YOUR_PORT>.service]8;;; enabled; preset: disabled)                                
-#      Active: active (running) since Sat 2024-08-31 22:14:16 JST; 12ms ago
-#    Main PID: 63681 (autossh)
-#       Tasks: 2 (limit: 403847)
-#      Memory: 1.6M
-#         CPU: 4ms
-#      CGroup: /system.slice/autossh-tunnel-<YOUR_PORT>.service
-#              ├─63681 /usr/bin/autossh -M 0 -N -o PubkeyAuthentication=yes -o PasswordAuthentication=no -i /home/>
-#              └─63682 /usr/bin/ssh -N -o PubkeyAuthentication=yes -o PasswordAuthentication=no -i /home/ywatanabe>
-#  
-# Aug 31 22:14:16 HOST systemd[1]: Started AutoSSH tunnel service.
-# Aug 31 22:14:16 HOST autossh[63681]: port set to 0, monitoring disabled
-# Aug 31 22:14:16 HOST autossh[63681]: starting ssh (count 1)
-# Aug 31 22:14:16 HOST autossh[63681]: ssh child pid is 63682
+# Set up tunnel
+result = stx.tunnel.setup(2222, "user@bastion.example.com", "~/.ssh/id_rsa")
+
+# Check status
+result = stx.tunnel.status()
+result = stx.tunnel.status(port=2222)
+
+# Remove tunnel
+result = stx.tunnel.remove(2222)
 ```
 
-## Connection Confirmation (From Client or Host)
-``` bash
-ssh $BASTION_SERVER # Connect to the bastion server
-ssh localhost -p <YOUR_PORT> # Connect to the Host through the tunnel
-# You may be prompted for a password initially
-# Upon success, you should be logged into the Host without additional prompts
+### Via SciTeX CLI
+
+```bash
+scitex tunnel setup -p 2222 -b user@bastion.example.com -s ~/.ssh/id_rsa
+scitex tunnel status
+scitex tunnel remove -p 2222
 ```
 
+## How It Works
+
+1. **Setup** creates a systemd service (`autossh-tunnel-<PORT>.service`) that:
+   - Uses autossh to maintain a persistent SSH connection
+   - Forwards a remote port on the bastion back to localhost:22
+   - Auto-restarts on failure
+
+2. **Status** queries systemd for tunnel service state
+
+3. **Remove** stops, disables, and deletes the systemd service
+
+## SSH Key Setup
+
+```bash
+# Generate key on host
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+
+# Copy public key to bastion
+cat ~/.ssh/id_rsa.pub  # Add to bastion's ~/.ssh/authorized_keys
+```
 
 ## Troubleshooting
 
-- If the connection fails, check the service status:
-  ```
-  sudo systemctl status autossh-tunnel-<YOUR_PORT>.service
-  ```
-- Verify the SSH keys are correctly set up on both Host and Bastion Server.
-- Ensure the PORT is not blocked by firewalls.
-
-## Uninstallation
-#### Host
 ```bash
-sudo systemctl status autossh*.service | grep autossh-tunnel-
-./remove-autossh-service.sh -p <YOUR_PORT>
-```
+# Check service status
+sudo systemctl status autossh-tunnel-<PORT>.service
 
-## How to skip password confirmations
-
-Register the client's public key to both the bastion and host servers to skip password verification:
-
-```bash
-cat "${SECRET_KEY_PATH}.pub" # copy the contents
-# Add the copied contents to $BASTION_SERVER's $HOME/.ssh/authorized_keys
-# Add the copied contents to Host's $HOME/.ssh/authorized_keys
+# View logs
+sudo journalctl -u autossh-tunnel-<PORT>.service -f
 ```
 
 ## Security
 
-- Keep your SSH keys secure and never share your private key. 
-- Ensure appropriate permissions for SSH keys:
-``` bash
-ssh-correct-permissions ()
-{ 
-    chmod 700 ~/.ssh 2> /dev/null;
-    chmod 600 ~/.ssh/* 2> /dev/null;
-    chmod 644 ~/.ssh/*.pub 2> /dev/null;
-    chmod 600 ~/.ssh/config 2> /dev/null
-}
-```
+- Keep SSH private keys secure (chmod 600)
+- Use dedicated keys per tunnel
+- Restrict bastion server access
 
-## Contact
-Yusuke Watanabe (ywtanabe@alumni.u-tokyo.ac.jp)
+## License
+
+AGPL-3.0
