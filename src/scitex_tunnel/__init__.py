@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""SciTeX Tunnel - Persistent SSH reverse tunnel for NAT traversal."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+
+__version__ = "0.1.0"
+AVAILABLE = True
+
+_SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), "scripts")
+
+
+def _run_script(
+    script_name: str, args: list[str] | None = None
+) -> subprocess.CompletedProcess:
+    """Run a bundled bash script."""
+    script_path = os.path.join(_SCRIPTS_DIR, script_name)
+    cmd = ["bash", script_path] + (args or [])
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def setup(port: int, bastion_server: str, secret_key_path: str) -> dict:
+    """Set up a persistent SSH reverse tunnel.
+
+    Parameters
+    ----------
+    port : int
+        The remote port to forward (e.g. 2222).
+    bastion_server : str
+        The bastion/relay server hostname or IP.
+    secret_key_path : str
+        Path to the SSH private key for authentication.
+
+    Returns
+    -------
+    dict
+        Result with 'success', 'stdout', 'stderr' keys.
+    """
+    result = _run_script(
+        "setup-autossh-service.sh",
+        ["-p", str(port), "-b", bastion_server, "-s", secret_key_path],
+    )
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
+def remove(port: int) -> dict:
+    """Remove a persistent SSH reverse tunnel.
+
+    Parameters
+    ----------
+    port : int
+        The remote port of the tunnel to remove.
+
+    Returns
+    -------
+    dict
+        Result with 'success', 'stdout', 'stderr' keys.
+    """
+    result = _run_script("remove-autossh-service.sh", ["-p", str(port)])
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
+def status(port: int | None = None) -> dict:
+    """Check status of SSH reverse tunnels.
+
+    Parameters
+    ----------
+    port : int, optional
+        Specific port to check. If None, shows all tunnels.
+
+    Returns
+    -------
+    dict
+        Result with 'success', 'stdout', 'stderr' keys.
+    """
+    if port:
+        cmd = [
+            "systemctl",
+            "status",
+            f"autossh-tunnel-{port}.service",
+            "--no-pager",
+        ]
+    else:
+        cmd = ["systemctl", "list-units", "autossh-tunnel-*", "--no-pager"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
+def get_version() -> str:
+    """Get scitex-tunnel version."""
+    return __version__
+
+
+# EOF

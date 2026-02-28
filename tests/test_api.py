@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Tests for scitex_tunnel Python API."""
+
+import os
+import subprocess
+from unittest.mock import patch
+
+
+import scitex_tunnel
+
+
+class TestVersion:
+    """Version and availability tests."""
+
+    def test_version_exists(self):
+        assert hasattr(scitex_tunnel, "__version__")
+        assert isinstance(scitex_tunnel.__version__, str)
+
+    def test_version_format(self):
+        parts = scitex_tunnel.__version__.split(".")
+        assert len(parts) == 3
+        assert all(p.isdigit() for p in parts)
+
+    def test_get_version(self):
+        assert scitex_tunnel.get_version() == scitex_tunnel.__version__
+
+    def test_available(self):
+        assert scitex_tunnel.AVAILABLE is True
+
+
+class TestScriptsDir:
+    """Script directory tests."""
+
+    def test_scripts_dir_exists(self):
+        assert os.path.isdir(scitex_tunnel._SCRIPTS_DIR)
+
+    def test_setup_script_exists(self):
+        path = os.path.join(scitex_tunnel._SCRIPTS_DIR, "setup-autossh-service.sh")
+        assert os.path.isfile(path)
+
+    def test_remove_script_exists(self):
+        path = os.path.join(scitex_tunnel._SCRIPTS_DIR, "remove-autossh-service.sh")
+        assert os.path.isfile(path)
+
+
+class TestSetup:
+    """Tests for setup() function."""
+
+    @patch("scitex_tunnel.subprocess.run")
+    def test_setup_calls_script(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="OK", stderr=""
+        )
+        result = scitex_tunnel.setup(2222, "user@bastion", "/home/user/.ssh/id_rsa")
+        assert result["success"] is True
+        assert result["stdout"] == "OK"
+        assert result["stderr"] == ""
+
+    @patch("scitex_tunnel.subprocess.run")
+    def test_setup_passes_args(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        scitex_tunnel.setup(5098, "admin@relay.example.com", "/tmp/key")
+        args = mock_run.call_args[0][0]
+        assert "-p" in args
+        assert "5098" in args
+        assert "-b" in args
+        assert "admin@relay.example.com" in args
+        assert "-s" in args
+        assert "/tmp/key" in args
+
+    @patch("scitex_tunnel.subprocess.run")
+    def test_setup_failure(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="Permission denied"
+        )
+        result = scitex_tunnel.setup(2222, "user@bastion", "/tmp/key")
+        assert result["success"] is False
+        assert result["stderr"] == "Permission denied"
+
+
+class TestRemove:
+    """Tests for remove() function."""
+
+    @patch("scitex_tunnel.subprocess.run")
+    def test_remove_success(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="Removed", stderr=""
+        )
+        result = scitex_tunnel.remove(2222)
+        assert result["success"] is True
+
+    @patch("scitex_tunnel.subprocess.run")
+    def test_remove_passes_port(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        scitex_tunnel.remove(5098)
+        args = mock_run.call_args[0][0]
+        assert "-p" in args
+        assert "5098" in args
+
+
+class TestStatus:
+    """Tests for status() function."""
+
+    @patch("scitex_tunnel.subprocess.run")
+    def test_status_all(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="active", stderr=""
+        )
+        result = scitex_tunnel.status()
+        assert result["success"] is True
+        args = mock_run.call_args[0][0]
+        assert "list-units" in args
+
+    @patch("scitex_tunnel.subprocess.run")
+    def test_status_specific_port(self, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="active", stderr=""
+        )
+        result = scitex_tunnel.status(port=2222)
+        assert result["success"] is True
+        args = mock_run.call_args[0][0]
+        assert "autossh-tunnel-2222.service" in args
+
+
+# EOF
