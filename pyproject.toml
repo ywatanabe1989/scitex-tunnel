@@ -18,5 +18,15 @@ dependencies = ["click"]
 [project.scripts]
 scitex-tunnel = "scitex_tunnel.cli:main"
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/scitex_tunnel"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
